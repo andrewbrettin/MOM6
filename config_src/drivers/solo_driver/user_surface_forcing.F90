@@ -19,7 +19,7 @@ use MOM_variables, only : surface
 
 implicit none ; private
 
-public USER_wind_forcing, USER_buoyancy_forcing, USER_surface_forcing_init
+public USER_wind_forcing, USER_buoyancy_forcing, USER_surface_forcing_init, randn
 
 !>   This control structure should be used to store any run-time variables
 !! associated with the user-specified forcing.
@@ -58,12 +58,19 @@ subroutine USER_wind_forcing(sfc_state, forces, day, G, US, CS)
                                                        !! by a previous call to user_surface_forcing_init
 
   ! Local variables
-  integer :: i, j, is, ie, js, je, Isq, Ieq, Jsq, Jeq
-
+  integer :: i, j         ! x, y integer indices
+  integer :: is, ie       ! start and end indices for i-cell centers
+  integer :: js, je       ! start and end indices for j-cell centers
+  integer :: Isq, Ieq     ! start and end indices for i-cell vertices
+  integer :: Jsq, Jeq     ! start and end indices for j-cell vertices
+  
+  real, parameter :: tau_x_0 = 0.3                      ! Amplitude for double-gyre mean wind stress forcing
+  real :: tau_x_v                                       ! Random amplitude for variability
+  
   !   When modifying the code, comment out this error message.  It is here
   ! so that the original (unmodified) version is not accidentally used.
-  call MOM_error(FATAL, "User_wind_surface_forcing: " // &
-     "User forcing routine called without modification." )
+  ! call MOM_error(FATAL, "User_wind_surface_forcing: " // &
+  !   "User forcing routine called without modification." )
 
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec
   Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
@@ -78,10 +85,12 @@ subroutine USER_wind_forcing(sfc_state, forces, day, G, US, CS)
   ! calculation of ustar - otherwise the lower bound would be Isq.
   do j=js,je ; do I=is-1,Ieq
     ! Change this to the desired expression.
-    forces%taux(I,j) = G%mask2dCu(I,j) * 0.0*US%kg_m3_to_R*US%m_s_to_L_T**2*US%L_to_Z
+    forces%taux(I,j) = tau_x_0*US%kg_m3_to_R*US%m_s_to_L_T**2*US%L_to_Z * &
+                      (1.0 - cos(2.0*PI*(G%geoLatCu(I,j)-CS%South_lat) / CS%len_lat)) &
+                      + tau_x_v*US%kg_m3_to_R*US%m_s_to_L_T**2*US%L_to_Z
   enddo ; enddo
   do J=js-1,Jeq ; do i=is,ie
-    forces%tauy(i,J) = G%mask2dCv(i,J) * 0.0  ! Change this to the desired expression.
+    forces%tauy(i,J) = 0.0  ! Change this to the desired expression.
   enddo ; enddo
 
   !    Set the surface friction velocity, in units of [Z T-1 ~> m s-1].  ustar
@@ -94,6 +103,23 @@ subroutine USER_wind_forcing(sfc_state, forces, day, G, US, CS)
   enddo ; enddo ; endif
 
 end subroutine USER_wind_forcing
+
+!> This subroutine generates standard normal random values
+subroutine randn(x)
+    implicit none
+    real, intent(out) :: x
+    real, parameter :: pi=3.14159265
+    real :: u, v
+    ! This subroutine generates standard normal random numbers
+    ! The standard normal is computed using the Box-Muller transformation.
+
+    call random_number(u)
+    call random_number(v)
+    u = 1 - u ! inversion prevents possible log(0) error
+    v = 1 - v
+    x = sqrt(-2*log(u))*cos(2*pi*v)
+end subroutine randn
+
 
 !>    This subroutine specifies the current surface fluxes of buoyancy or
 !!  temperature and fresh water.  It may also be modified to add
@@ -270,7 +296,7 @@ subroutine USER_surface_forcing_init(Time, G, US, param_file, diag, CS)
                  "parameters from vertical units of m to kg m-2.", &
                  units="kg m-3", default=1035.0, scale=US%kg_m3_to_R)
   call get_param(param_file, mdl, "GUST_CONST", CS%gust_const, &
-                 "The background gustiness in the winds.", &
+                 "The background gustiness in the  s.", &
                  units="Pa", default=0.0, scale=US%kg_m3_to_R*US%m_s_to_L_T**2*US%L_to_Z)
 
   call get_param(param_file, mdl, "RESTOREBUOY", CS%restorebuoy, &
